@@ -12,6 +12,7 @@ using System.Web;
 using Microsoft.Azure.Documents.Client;
 using System.Configuration;
 using Microsoft.Extensions.Configuration;
+using Newtonsoft.Json.Linq;
 
 namespace PartitionKeyAdvisor.Controllers
 {
@@ -83,6 +84,32 @@ namespace PartitionKeyAdvisor.Controllers
             return documentDictionary.Values.GroupBy(x => x.GetPropertyValue<string>(time), y=> y.GetPropertyValue<string>(filter)).ToDictionary(g => g.Key, g => g.Distinct().Count());
         }
 
+        private List<string> getAllProperties(List<JProperty> rootPropetries, string parentPath = "")
+        {
+          var output = new List<string>();
+
+          foreach (var property in rootPropetries)
+          {
+            if (property.Value.Type.ToString() == "Object")
+            {
+              output.AddRange(getAllProperties(property.Value.Children<JProperty>().ToList(), parentPath + property.Name + "/"));
+            }
+
+            if (property.Value.Type.ToString() != "Array" && property.Value.Type.ToString() != "Object")
+            {
+              //if (parentPath.Length > 0 && parentPath.Last() == '/')
+              //{
+              //  parentPath = parentPath.Substring(0, parentPath.Length - 1);
+              //}
+              output.Add(parentPath + property.Name);
+            }
+          }
+
+          return output;
+
+          //var test = rootPropetries.Where(p => p.Value.Type.ToString() != "Object").Select(p => p.Name);
+        }
+
         public async Task<ActionResult> WriteHeavy(FormModel model) {
             string _endpoint = model.ConnectionString;
             string _primaryKey = model.ReadOnlyKey;
@@ -115,20 +142,20 @@ namespace PartitionKeyAdvisor.Controllers
                     var listOfDocumentDictionaries = new List<Dictionary<string, int>>();
                     var listOfDistinctValues = new List<Dictionary<string, int>>();
                     var list = documentList[0].ToString();
-                    var valueTypesThatGroupPoorly = new[] {"Object", "Array"};
-                    var dictionaryOfSchema = JObject.Parse(list)
-                                                    .Properties()
-                                                    .Where(p => !valueTypesThatGroupPoorly.Contains(p.Value.Type.ToString()))
-                                                    .Select(p => p.Name)
-                                                    .ToList();
+                    var dictionaryOfSchema = JsonConvert.DeserializeObject<Dictionary<string, dynamic>>(list);
+
+                    var test = JObject.Parse(list).Properties().ToList();
+                    var test2 = getAllProperties(test);
 
                     var filterArray = new string[] { model.Filter1, model.Filter2, model.Filter3 };
 
                     //groups values by distinctness per property for schema discovery
+                    
                     var overallUniquenessResults = new int[3];
-                    foreach (var i in dictionaryOfSchema)
+                    foreach (var i in test2.Distinct())
                     {
                         var groupValues = documentDictionary.Values.GroupBy(x => x.GetPropertyValue<string>(i)).Distinct().Count();
+                        //var groupValues = documentList.GroupBy(x => x.GetPropertyValue<string>("transactionHeader/tipVersion")).Distinct().Count();
                         viewDataDictionaryforDcount.Add(i, groupValues);
                         if (i.Equals(filterArray[0]))
                         {
